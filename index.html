@@ -721,11 +721,32 @@ Return concise bullet points in plain English.</textarea>
       const pcPower = getValueByMapping("pcPower");
       const pcHours = getValueByMapping("pcHours");
       const refC = getValueByMapping("refC");
-      const refL = getValueByMapping("refL");
+      let refL = getValueByMapping("refL");
       const gwp = getValueByMapping("gwp");
-      const gef = getValueByMapping("gef");
-      const oactual = getValueByMapping("oactual");
-      const obase = getValueByMapping("obase");
+      let gef = getValueByMapping("gef");
+      let oactual = getValueByMapping("oactual");
+      let obase = getValueByMapping("obase");
+
+      const normalizationNotes = [];
+      // If leakage is provided as "5" (%) instead of 0.05, normalize automatically.
+      if (refL > 1 && refL <= 100) {
+        refL = refL / 100;
+        normalizationNotes.push(`Leakage L normalized from percent to ratio: ${refL.toFixed(4)}`);
+      }
+      // If GEF is provided as "38" instead of 0.38, normalize automatically.
+      if (gef > 5 && gef <= 100) {
+        gef = gef / 100;
+        normalizationNotes.push(`GEF normalized from percent-like value to ratio: ${gef.toFixed(4)}`);
+      }
+      // Optional safety normalization for occupancy values occasionally stored in percent.
+      if (oactual > 1 && oactual <= 100) {
+        oactual = oactual / 100;
+        normalizationNotes.push(`Oactual normalized from percent to density ratio: ${oactual.toFixed(4)}`);
+      }
+      if (obase > 1 && obase <= 100) {
+        obase = obase / 100;
+        normalizationNotes.push(`Obase normalized from percent to density ratio: ${obase.toFixed(4)}`);
+      }
 
       const rho = 1.2;
       const volume = area * height;
@@ -767,7 +788,10 @@ Return concise bullet points in plain English.</textarea>
       } else {
         ideas.push("EEI looks stable. Tune comfort settings incrementally.");
       }
-      setHtml("ruleAdviceBox", `${badge} Rule-based quick advice:<br/>${ideas.map(i => `- ${i}`).join("<br/>")}`);
+      const noteHtml = normalizationNotes.length
+        ? `<br/><br/>Input normalization:<br/>${normalizationNotes.map((n) => `- ${n}`).join("<br/>")}`
+        : "";
+      setHtml("ruleAdviceBox", `${badge} Rule-based quick advice:<br/>${ideas.map(i => `- ${i}`).join("<br/>")}${noteHtml}`);
 
       const result = {
         timestamp: new Date().toISOString(),
@@ -777,6 +801,7 @@ Return concise bullet points in plain English.</textarea>
           area, height, deltaH, cop, eelec, lightHours, pcPower, pcHours,
           refC, refL, gwp, gef, oactual, obase
         },
+        normalizationNotes,
         breakdown: {
           hvacKWh, lightingKWh, equipmentKWh, totalElectricity
         },
