@@ -439,6 +439,7 @@ Return concise bullet points in plain English.</textarea>
       sheetMatrix: [],
       mapping: {},
       templateValues: {},
+      templateMode: "generic",
       lastResult: null
     };
 
@@ -544,6 +545,93 @@ Return concise bullet points in plain English.</textarea>
       if (templateValue != null) return templateValue;
       return defaultValues[fieldKey];
     }
+    function hasHeader(name) {
+      return state.headers.some((h) => norm(h) === norm(name));
+    }
+    function detectTemplateMode() {
+      if (hasHeader("people") && hasHeader("lux1") && hasHeader("temperature1") && hasHeader("humidity1")) {
+        return "sensor_log";
+      }
+      return "generic";
+    }
+    function averageAcrossHeaders(headers) {
+      const values = [];
+      for (const header of headers) {
+        values.push(...numericValues(state.rows, header));
+      }
+      return average(values);
+    }
+    function averageRowSum(headers) {
+      const sums = [];
+      for (const row of state.rows) {
+        let total = 0;
+        let seen = false;
+        for (const header of headers) {
+          const value = Number(row[header]);
+          if (Number.isFinite(value)) {
+            total += value;
+            seen = true;
+          }
+        }
+        if (seen) sums.push(total);
+      }
+      return average(sums);
+    }
+    function parseTimestamp(value) {
+      if (!value) return null;
+      const dt = new Date(value);
+      return Number.isNaN(dt.getTime()) ? null : dt;
+    }
+    function deriveSensorTemplateInputs() {
+      const luxHeaders = state.headers.filter((h) => /^lux\d+$/i.test(h));
+      const computerHeaders = state.headers.filter((h) => /^computer_/i.test(h));
+      const peopleValues = numericValues(state.rows, "people");
+      const notes = [
+        "Detected sensor log template. Scope 1 uses fixed assumptions from the method document instead of Excel column mapping."
+      ];
+
+      const avgLux = averageAcrossHeaders(luxHeaders);
+      const avgPeople = average(peopleValues);
+      const avgComputerPower = averageRowSum(computerHeaders);
+
+      let durationHours = defaultValues.pcHours;
+      const timeValues = state.rows.map((row) => parseTimestamp(row.atime_save)).filter(Boolean);
+      if (timeValues.length >= 2) {
+        const first = timeValues[0].getTime();
+        const last = timeValues[timeValues.length - 1].getTime();
+        const span = (last - first) / 3600000;
+        if (Number.isFinite(span) && span > 0) durationHours = span;
+      }
+
+      let oactual = defaultValues.oactual;
+      if (avgPeople != null && defaultValues.area > 0 && avgPeople > 0) {
+        oactual = avgPeople / defaultValues.area;
+      } else {
+        notes.push("People sensor average is zero, so default occupancy density is used.");
+      }
+
+      const lightHours = avgLux != null && avgLux > 0 ? durationHours : defaultValues.lightHours;
+      if (avgLux == null) notes.push("Lux sensors not found, so default lighting input is used.");
+      notes.push("Delta enthalpy is not directly available in this sensor log, so the default assumption is used.");
+
+      return {
+        area: defaultValues.area,
+        height: defaultValues.height,
+        deltaH: defaultValues.deltaH,
+        cop: defaultValues.cop,
+        eelec: avgLux != null ? avgLux : defaultValues.eelec,
+        lightHours,
+        pcPower: avgComputerPower != null ? avgComputerPower : defaultValues.pcPower,
+        pcHours: durationHours,
+        refC: defaultValues.refC,
+        refL: defaultValues.refL,
+        gwp: defaultValues.gwp,
+        gef: defaultValues.gef,
+        oactual,
+        obase: defaultValues.obase,
+        notes
+      };
+    }
 
     function renderSteps() {
       const panel = document.getElementById("stepsPanel");
@@ -604,6 +692,12 @@ Return concise bullet points in plain English.</textarea>
     }
 
     function applyAutoMapping() {
+      if (state.templateMode === "sensor_log") {
+        state.mapping = {};
+        renderMappingUI();
+        setText("excelStatus", "Sensor log template detected. Fixed assumptions will be used for Scope 1 and static model constants.");
+        return;
+      }
       for (const field of mappingFields) {
         state.mapping[field.key] = findHeaderByAliases(state.headers, field.aliases);
       }
@@ -615,6 +709,28 @@ Return concise bullet points in plain English.</textarea>
     function validateMapping() {
       if (!state.rows.length) {
         setText("mappingCheckBox", "Please load Excel first.");
+        return;
+      }
+
+      if (state.templateMode === "sensor_log") {
+        const sensorHeaders = state.headers.filter((h) =>
+          /^lux\d+$/i.test(h) ||
+          /^temperature\d+$/i.test(h) ||
+          /^humidity\d+$/i.test(h) ||
+          /^computer_/i.test(h) ||
+          norm(h) === "people" ||
+          norm(h) === "atimesave"
+        );
+        const summary = [
+          "Detected template mode: sensor_log",
+          "This file is a time-series sensor template, not a parameter sheet.",
+          "Scope 1 fixed assumptions will be used: C=1.75, L=0.05, GWP=2285.",
+          `Sensor headers detected: ${sensorHeaders.length}`,
+          "",
+          "Detected fields:",
+          ...sensorHeaders
+        ].join("\n");
+        setText("mappingCheckBox", summary);
         return;
       }
 
@@ -702,8 +818,9 @@ Return concise bullet points in plain English.</textarea>
         ? Object.keys(rows[0])
         : (Array.isArray(matrix[0]) ? matrix[0].filter((x) => String(x || "").trim()).map((x) => String(x)) : []);
       state.templateValues = extractTemplateValues(matrix);
+      state.templateMode = detectTemplateMode();
       renderMappingUI();
-      setText("mappingCheckBox", "Sheet loaded. Click 'Validate Mapping' to inspect field-level mapping quality.");
+      setText("mappingCheckBox", `Sheet loaded. Detected mode: ${state.templateMode}. Click 'Validate Mapping' to inspect field-level mapping quality.`);
     }
 
     function calculateFromExcel() {
@@ -712,22 +829,24 @@ Return concise bullet points in plain English.</textarea>
         return;
       }
 
-      const area = getValueByMapping("area");
-      const height = getValueByMapping("height");
-      const deltaH = getValueByMapping("deltaH");
-      const cop = getValueByMapping("cop");
-      const eelec = getValueByMapping("eelec");
-      const lightHours = getValueByMapping("lightHours");
-      const pcPower = getValueByMapping("pcPower");
-      const pcHours = getValueByMapping("pcHours");
-      const refC = getValueByMapping("refC");
-      let refL = getValueByMapping("refL");
-      const gwp = getValueByMapping("gwp");
-      let gef = getValueByMapping("gef");
-      let oactual = getValueByMapping("oactual");
-      let obase = getValueByMapping("obase");
+      const derivedInputs = state.templateMode === "sensor_log" ? deriveSensorTemplateInputs() : null;
 
-      const normalizationNotes = [];
+      const area = derivedInputs ? derivedInputs.area : getValueByMapping("area");
+      const height = derivedInputs ? derivedInputs.height : getValueByMapping("height");
+      const deltaH = derivedInputs ? derivedInputs.deltaH : getValueByMapping("deltaH");
+      const cop = derivedInputs ? derivedInputs.cop : getValueByMapping("cop");
+      const eelec = derivedInputs ? derivedInputs.eelec : getValueByMapping("eelec");
+      const lightHours = derivedInputs ? derivedInputs.lightHours : getValueByMapping("lightHours");
+      const pcPower = derivedInputs ? derivedInputs.pcPower : getValueByMapping("pcPower");
+      const pcHours = derivedInputs ? derivedInputs.pcHours : getValueByMapping("pcHours");
+      const refC = derivedInputs ? derivedInputs.refC : getValueByMapping("refC");
+      let refL = derivedInputs ? derivedInputs.refL : getValueByMapping("refL");
+      const gwp = derivedInputs ? derivedInputs.gwp : getValueByMapping("gwp");
+      let gef = derivedInputs ? derivedInputs.gef : getValueByMapping("gef");
+      let oactual = derivedInputs ? derivedInputs.oactual : getValueByMapping("oactual");
+      let obase = derivedInputs ? derivedInputs.obase : getValueByMapping("obase");
+
+      const normalizationNotes = derivedInputs ? [...derivedInputs.notes] : [];
       // If leakage is provided as "5" (%) instead of 0.05, normalize automatically.
       if (refL > 1 && refL <= 100) {
         refL = refL / 100;
