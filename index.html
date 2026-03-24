@@ -1,0 +1,908 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Carbon Audit Pipeline (Excel + Gemini)</title>
+  <style>
+    :root {
+      --bg: #0c1224;
+      --panel: #121b39;
+      --panel-2: #17254c;
+      --text: #e9eeff;
+      --muted: #aab6dd;
+      --accent: #63e8ff;
+      --border: #2a3b77;
+      --ok: #5de7a8;
+      --warn: #ffd36e;
+      --bad: #ff8f8f;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: radial-gradient(1200px 700px at 80% -20%, #263d7a 0%, var(--bg) 52%);
+      min-height: 100vh;
+    }
+    .container {
+      width: min(1180px, 92vw);
+      margin: 26px auto 48px;
+    }
+    .title { margin: 0; font-size: 30px; }
+    .subtitle {
+      margin: 8px 0 18px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 14px;
+    }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: linear-gradient(180deg, var(--panel), var(--panel-2));
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.26);
+    }
+    .steps {
+      padding: 12px;
+      max-height: 82vh;
+      overflow: auto;
+    }
+    .step {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.02);
+      margin: 8px 0;
+      padding: 11px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .step.active {
+      border-color: var(--accent);
+      background: rgba(99, 232, 255, 0.1);
+    }
+    .step small { color: var(--accent); display: block; margin-bottom: 3px; }
+    .content { padding: 16px; }
+    .content h2 { margin: 0 0 8px; }
+    .desc { margin: 0 0 12px; color: var(--muted); line-height: 1.55; }
+
+    .label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--accent);
+      margin: 11px 0 5px;
+    }
+    .box {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.02);
+      line-height: 1.55;
+      color: #d8e1ff;
+    }
+    .box ul { margin: 0; padding-left: 18px; }
+
+    .calc {
+      margin-top: 14px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.02);
+      padding: 12px;
+    }
+    .calc h3 { margin: 0 0 8px; }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(180px, 1fr));
+      gap: 10px;
+    }
+    .field label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .field input, .field select, .field textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #0f1834;
+      color: var(--text);
+      padding: 8px 10px;
+      font: inherit;
+    }
+    .field textarea { min-height: 120px; }
+
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .action {
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      background: rgba(99, 232, 255, 0.12);
+      color: var(--text);
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+    .action.secondary {
+      border-color: var(--border);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .status {
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 13px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .metrics {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 8px;
+    }
+    .metric {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .metric .k { font-size: 12px; color: var(--muted); }
+    .metric .v { font-size: 18px; font-weight: 700; margin-top: 2px; }
+    .metric .u { font-size: 12px; color: var(--muted); }
+
+    .badge {
+      display: inline-block;
+      font-size: 12px;
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin-right: 6px;
+      border: 1px solid transparent;
+    }
+    .ok { color: var(--ok); border-color: rgba(93, 231, 168, 0.5); background: rgba(93, 231, 168, 0.15); }
+    .warn { color: var(--warn); border-color: rgba(255, 211, 110, 0.5); background: rgba(255, 211, 110, 0.15); }
+    .bad { color: var(--bad); border-color: rgba(255, 143, 143, 0.5); background: rgba(255, 143, 143, 0.15); }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    @media (max-width: 920px) {
+      .grid { grid-template-columns: 1fr; }
+      .steps { max-height: unset; }
+      .form-grid, .metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1 class="title">Carbon Audit Workflow: Excel -> Calculation -> Gemini Feedback</h1>
+    <p class="subtitle">
+      Upload your Excel file (like <code>2025-03-23.xlsx</code>), map columns once, run the calculation,
+      then send the result JSON to Gemini for expert feedback.
+    </p>
+
+    <div class="grid">
+      <section class="card steps" id="stepsPanel"></section>
+
+      <section class="card content">
+        <h2 id="stepTitle"></h2>
+        <p class="desc" id="stepDesc"></p>
+
+        <div class="label">How To Do</div>
+        <div class="box" id="stepHow"></div>
+
+        <div class="label">Input / Output</div>
+        <div class="box" id="stepIO"></div>
+
+        <div class="label">Done Criteria</div>
+        <div class="box" id="stepDone"></div>
+
+        <div class="calc">
+          <h3>1) Upload Excel + Column Mapping</h3>
+          <div class="form-grid">
+            <div class="field">
+              <label>Excel file (.xlsx)</label>
+              <input id="excelFile" type="file" accept=".xlsx,.xls" />
+            </div>
+            <div class="field">
+              <label>Sheet</label>
+              <select id="sheetSelect"></select>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="action" id="loadExcelBtn">Load Excel</button>
+            <button class="action secondary" id="buildMappingBtn">Auto-map Columns</button>
+            <button class="action secondary" id="validateMappingBtn">Validate Mapping</button>
+          </div>
+          <div class="status" id="excelStatus">No Excel loaded yet.</div>
+
+          <div class="label">Column Mapping (auto-detected, editable)</div>
+          <div class="form-grid" id="mappingGrid"></div>
+          <div class="status mono" id="mappingCheckBox">Mapping validation report will appear here.</div>
+        </div>
+
+        <div class="calc">
+          <h3>2) Calculate Carbon + EEI from Excel Data</h3>
+          <div class="btn-row">
+            <button class="action" id="calcFromExcelBtn">Calculate from Excel</button>
+            <button class="action secondary" id="fillDefaultsBtn">Use default constants</button>
+          </div>
+          <div class="metrics">
+            <div class="metric"><div class="k">Scope 1</div><div class="v" id="scope1Value">-</div><div class="u">kgCO2e</div></div>
+            <div class="metric"><div class="k">Scope 2</div><div class="v" id="scope2Value">-</div><div class="u">kgCO2e</div></div>
+            <div class="metric"><div class="k">Total Electricity</div><div class="v" id="elecValue">-</div><div class="u">kWh</div></div>
+            <div class="metric"><div class="k">EEI</div><div class="v" id="eeiValue">-</div><div class="u">kWh/m2 (corrected)</div></div>
+          </div>
+          <div class="status mono" id="resultJsonBox">Result JSON will appear here.</div>
+          <div class="status" id="ruleAdviceBox">Rule-based advice will appear after calculation.</div>
+        </div>
+
+        <div class="calc">
+          <h3>3) Send Results to LLM (Gemini / DeepSeek)</h3>
+          <div class="form-grid">
+            <div class="field">
+              <label>Gemini API Key</label>
+              <input id="geminiApiKey" type="password" placeholder="Paste your Google AI API key" />
+            </div>
+            <div class="field">
+              <label>Gemini Model ID</label>
+              <input id="geminiModel" type="text" value="gemini-3.1-pro" />
+            </div>
+            <div class="field">
+              <label>DeepSeek API Key</label>
+              <input id="deepseekApiKey" type="password" placeholder="Paste your DeepSeek API key" />
+            </div>
+            <div class="field">
+              <label>DeepSeek Model ID</label>
+              <input id="deepseekModel" type="text" value="deepseek-chat" />
+            </div>
+            <div class="field" style="grid-column: 1 / -1;">
+              <label>Prompt template (optional)</label>
+              <textarea id="promptTemplate">You are an energy and carbon-audit expert.
+Given the project result JSON below, provide:
+1) Short diagnostic summary
+2) Top 5 action items
+3) Risk warnings
+4) Comfort vs energy trade-off suggestions
+5) A final priority list for next 7 days
+
+Return concise bullet points in plain English.</textarea>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="action" id="sendToGeminiBtn">Send to Gemini</button>
+            <button class="action secondary" id="sendToDeepSeekBtn">Send to DeepSeek</button>
+          </div>
+          <div class="status mono" id="geminiFeedbackBox">Gemini feedback will appear here.</div>
+          <div class="status mono" id="deepseekFeedbackBox">DeepSeek feedback will appear here.</div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const steps = [
+      {
+        n: "Step 1",
+        name: "BIM Modeling with Real-time Integration",
+        desc: "Build a room model in BIM and keep digital state synchronized with sensor state.",
+        how: [
+          "Create room geometry, material, and key assets (HVAC, lights, equipment).",
+          "Map each sensor field to a Digital Twin property.",
+          "Set refresh interval and check field-level sync quality."
+        ],
+        io: "Input: BIM assets + sensor schema. Output: synchronized digital twin scene.",
+        done: "Random sensor checks match expected values within acceptable error."
+      },
+      {
+        n: "Step 2",
+        name: "IoT Data Collection",
+        desc: "Collect temperature, humidity, illuminance, occupancy, and equipment status continuously.",
+        how: [
+          "Use consistent timestamp and unit conventions.",
+          "Filter missing/outlier data before calculation.",
+          "Store raw and cleaned streams separately."
+        ],
+        io: "Input: raw sensor stream. Output: standardized time-series dataset.",
+        done: "Data quality checks and monitoring alerts are available."
+      },
+      {
+        n: "Step 3",
+        name: "Smart App Integration (AI + DT + Carbon Audit)",
+        desc: "Provide one interface that receives data, runs carbon formulas, and shows results.",
+        how: [
+          "Use API endpoints for data, calculation, and recommendation.",
+          "Display current metrics and explainability notes.",
+          "Collect occupant feedback for future model updates."
+        ],
+        io: "Input: realtime + historical data. Output: metrics + recommendations + feedback logs.",
+        done: "A user can finish full loop in one interface."
+      },
+      {
+        n: "Step 4",
+        name: "AI Carbon and Efficiency Calculation",
+        desc: "Compute Scope1, Scope2, and EEI using your formulas and constants.",
+        how: [
+          "Scope1 = C x L x GWP",
+          "Scope2 = TotalElectricity x GEF",
+          "EEI = (EC / Area) x (Obase / Oactual), with Obase default 0.1"
+        ],
+        io: "Input: refrigerant, HVAC, lighting, equipment data. Output: kgCO2e + EEI.",
+        done: "Result can be reproduced with same input."
+      },
+      {
+        n: "Step 5",
+        name: "Automated Data Storage",
+        desc: "Persist cleaned data and outputs for trend analysis and audit traceability.",
+        how: [
+          "Store raw, cleaned, calculated, and feedback records.",
+          "Aggregate by hour/day while preserving raw data.",
+          "Enable CSV/Excel export for reporting."
+        ],
+        io: "Input: streams + calculations. Output: queryable historical records.",
+        done: "Any period can be replayed and audited."
+      },
+      {
+        n: "Step 6",
+        name: "Generate Recommendations",
+        desc: "Create actionable strategies from occupancy, light, and load conditions.",
+        how: [
+          "High occupancy + high temp -> tune HVAC setpoint.",
+          "Strong daylight + high illuminance -> dim or zone off lights.",
+          "Low occupancy -> reduce idle equipment operation."
+        ],
+        io: "Input: current state + trends. Output: actions with expected impact.",
+        done: "Each recommendation includes trigger, action, gain, and comfort risk."
+      },
+      {
+        n: "Step 7",
+        name: "Comfort Evaluation and Model Refinement",
+        desc: "Use occupant feedback to improve strategy quality over time.",
+        how: [
+          "Collect accept/reject and reason labels.",
+          "Tune thresholds and ranking logic based on feedback.",
+          "Review comfort-energy conflict patterns periodically."
+        ],
+        io: "Input: feedback labels. Output: improved future recommendations.",
+        done: "Higher acceptance rate and fewer comfort complaints."
+      },
+      {
+        n: "Step 8",
+        name: "Continuous Monitoring Loop",
+        desc: "Keep operations in a closed loop with trend tracking and alerting.",
+        how: [
+          "Monitor carbon and efficiency over time.",
+          "Trigger alerts for abnormal usage or poor comfort outcomes.",
+          "Feed new data back into calculation and model tuning."
+        ],
+        io: "Input: full pipeline data. Output: continuous optimization.",
+        done: "Sustained reduction in energy and carbon intensity."
+      }
+    ];
+
+    const mappingFields = [
+      { key: "area", label: "Area (m2)", aliases: ["area", "room area", "floor area", "m2", "sqm", "size", "面积"] },
+      { key: "height", label: "Height (m)", aliases: ["height", "room height", "ceiling", "h", "高度"] },
+      { key: "deltaH", label: "Delta Enthalpy (kJ/kg)", aliases: ["deltah", "delta enthalpy", "enthalpy diff", "h_diff", "delta h", "焓差"] },
+      { key: "cop", label: "COP", aliases: ["cop", "hvac cop", "ac cop", "空调cop"] },
+      { key: "eelec", label: "Electric Illuminance (lux)", aliases: ["eelec", "electric illuminance", "lux", "lighting lux", "eelec(lux)", "照度"] },
+      { key: "lightHours", label: "Lighting Hours (h)", aliases: ["light hours", "lighting hours", "lamp hours", "light time", "照明时长"] },
+      { key: "pcPower", label: "Equipment Power (W)", aliases: ["pc power", "equipment power", "computer power", "watt", "load power", "设备功率"] },
+      { key: "pcHours", label: "Equipment Hours (h)", aliases: ["pc hours", "equipment hours", "computer hours", "equipment time", "设备时长"] },
+      { key: "refC", label: "Refrigerant Capacity C (kg)", aliases: ["ref c", "capacity c", "refrigerant capacity", "refrigerant charge", "c(kg)", "制冷剂容量"] },
+      { key: "refL", label: "Leakage L", aliases: ["ref l", "leakage", "leak rate", "annual leakage", "l(%)", "泄漏率"] },
+      { key: "gwp", label: "GWP", aliases: ["gwp", "global warming potential"] },
+      { key: "gef", label: "GEF (kgCO2e/kWh)", aliases: ["gef", "grid emission factor", "emission factor", "kgco2e/kwh", "电网排放因子"] },
+      { key: "oactual", label: "Actual Occupancy Density", aliases: ["oactual", "actual occupancy", "occupancy density", "actual density", "实际占用密度"] },
+      { key: "obase", label: "Base Occupancy Density", aliases: ["obase", "base occupancy", "baseline occupancy", "base density", "基准占用密度"] }
+    ];
+
+    const defaultValues = {
+      area: 70,
+      height: 3,
+      deltaH: 10,
+      cop: 3,
+      eelec: 300,
+      lightHours: 1,
+      pcPower: 2000,
+      pcHours: 1,
+      refC: 1.75,
+      refL: 0.05,
+      gwp: 2285,
+      gef: 0.38,
+      oactual: 0.08,
+      obase: 0.1
+    };
+
+    const state = {
+      workbook: null,
+      rows: [],
+      headers: [],
+      sheetMatrix: [],
+      mapping: {},
+      templateValues: {},
+      lastResult: null
+    };
+
+    function setText(id, text) {
+      document.getElementById(id).textContent = text;
+    }
+    function setHtml(id, html) {
+      document.getElementById(id).innerHTML = html;
+    }
+    function fmt(v) {
+      return Number.isFinite(v) ? Number(v).toFixed(3) : "-";
+    }
+    function norm(s) {
+      return String(s || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[%\(\)\[\]\{\}\-_/\\\s]+/g, "")
+        .replace(/：/g, ":");
+    }
+    function toNumber(v) {
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+      const text = String(v == null ? "" : v).trim();
+      if (!text) return null;
+      const cleaned = text.replace(/,/g, "");
+      const n = Number(cleaned);
+      return Number.isFinite(n) ? n : null;
+    }
+    function matchAlias(text, aliases) {
+      const nt = norm(text);
+      if (!nt) return false;
+      for (const a of aliases) {
+        const na = norm(a);
+        if (!na) continue;
+        if (nt.includes(na) || na.includes(nt)) return true;
+      }
+      return false;
+    }
+    function findHeaderByAliases(headers, aliases) {
+      for (const h of headers) {
+        if (matchAlias(h, aliases)) return h;
+      }
+      return "";
+    }
+    function numericValues(rows, key) {
+      const out = [];
+      for (const row of rows) {
+        const value = Number(row[key]);
+        if (Number.isFinite(value)) out.push(value);
+      }
+      return out;
+    }
+    function average(arr) {
+      if (!arr.length) return null;
+      return arr.reduce((a, b) => a + b, 0) / arr.length;
+    }
+    function extractTemplateValues(matrix) {
+      const out = {};
+      for (const f of mappingFields) {
+        out[f.key] = { values: [], refs: [] };
+      }
+      if (!Array.isArray(matrix) || !matrix.length) return out;
+
+      for (let r = 0; r < matrix.length; r += 1) {
+        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+        for (let c = 0; c < row.length; c += 1) {
+          const cell = row[c];
+          if (cell == null) continue;
+          const cellText = String(cell).trim();
+          if (!cellText) continue;
+
+          const field = mappingFields.find((f) => matchAlias(cellText, f.aliases));
+          if (!field) continue;
+
+          const candidates = [
+            row[c + 1], row[c + 2], row[c + 3],
+            row[c - 1],
+            matrix[r + 1] && matrix[r + 1][c],
+            matrix[r + 1] && matrix[r + 1][c + 1]
+          ];
+          for (const cand of candidates) {
+            const num = toNumber(cand);
+            if (num == null) continue;
+            out[field.key].values.push(num);
+            out[field.key].refs.push(`R${r + 1}C${c + 1}`);
+          }
+        }
+      }
+      return out;
+    }
+    function valueFromTemplate(fieldKey) {
+      const hit = state.templateValues[fieldKey];
+      if (!hit || !hit.values || !hit.values.length) return null;
+      return average(hit.values);
+    }
+    function getValueByMapping(fieldKey) {
+      const mappedHeader = state.mapping[fieldKey];
+      if (mappedHeader) {
+        const values = numericValues(state.rows, mappedHeader);
+        const avg = average(values);
+        if (avg != null) return avg;
+      }
+      const templateValue = valueFromTemplate(fieldKey);
+      if (templateValue != null) return templateValue;
+      return defaultValues[fieldKey];
+    }
+
+    function renderSteps() {
+      const panel = document.getElementById("stepsPanel");
+      panel.innerHTML = "";
+      steps.forEach((s, idx) => {
+        const b = document.createElement("button");
+        b.className = "step";
+        b.innerHTML = `<small>${s.n}</small>${s.name}`;
+        b.addEventListener("click", () => renderStepDetail(idx));
+        panel.appendChild(b);
+      });
+      renderStepDetail(0);
+    }
+
+    function renderStepDetail(idx) {
+      const panel = document.getElementById("stepsPanel");
+      [...panel.querySelectorAll(".step")].forEach((el, i) => el.classList.toggle("active", i === idx));
+      const s = steps[idx];
+      setText("stepTitle", `${s.n} - ${s.name}`);
+      setText("stepDesc", s.desc);
+      setHtml("stepHow", `<ul>${s.how.map(x => `<li>${x}</li>`).join("")}</ul>`);
+      setText("stepIO", s.io);
+      setText("stepDone", s.done);
+    }
+
+    function renderMappingUI() {
+      const grid = document.getElementById("mappingGrid");
+      grid.innerHTML = "";
+      for (const field of mappingFields) {
+        const wrap = document.createElement("div");
+        wrap.className = "field";
+
+        const label = document.createElement("label");
+        label.textContent = field.label;
+        wrap.appendChild(label);
+
+        const select = document.createElement("select");
+        select.id = `map-${field.key}`;
+        const noneOption = document.createElement("option");
+        noneOption.value = "";
+        noneOption.textContent = `(Use default: ${defaultValues[field.key]})`;
+        select.appendChild(noneOption);
+
+        for (const h of state.headers) {
+          const op = document.createElement("option");
+          op.value = h;
+          op.textContent = h;
+          select.appendChild(op);
+        }
+        select.value = state.mapping[field.key] || "";
+        select.addEventListener("change", () => {
+          state.mapping[field.key] = select.value;
+        });
+
+        wrap.appendChild(select);
+        grid.appendChild(wrap);
+      }
+    }
+
+    function applyAutoMapping() {
+      for (const field of mappingFields) {
+        state.mapping[field.key] = findHeaderByAliases(state.headers, field.aliases);
+      }
+      renderMappingUI();
+      const templateHits = mappingFields.filter((f) => valueFromTemplate(f.key) != null).length;
+      setText("excelStatus", `Auto-mapping completed. Header hits: ${Object.values(state.mapping).filter(Boolean).length}/${mappingFields.length}. Template-value hits: ${templateHits}/${mappingFields.length}.`);
+    }
+
+    function validateMapping() {
+      if (!state.rows.length) {
+        setText("mappingCheckBox", "Please load Excel first.");
+        return;
+      }
+
+      const lines = [];
+      let mapped = 0;
+      let numericOk = 0;
+      let missing = 0;
+
+      for (const field of mappingFields) {
+        const header = state.mapping[field.key];
+        if (header) {
+          mapped += 1;
+          const vals = numericValues(state.rows, header);
+          const avg = average(vals);
+          if (avg != null) {
+            numericOk += 1;
+            lines.push(`${field.key}: HEADER -> "${header}" | numeric rows: ${vals.length}/${state.rows.length} | avg: ${avg.toFixed(3)}`);
+            continue;
+          }
+          lines.push(`${field.key}: HEADER -> "${header}" but no numeric values, trying template cell scan...`);
+        }
+
+        const tVal = valueFromTemplate(field.key);
+        if (tVal != null) {
+          numericOk += 1;
+          const refs = (state.templateValues[field.key]?.refs || []).slice(0, 3).join(", ");
+          lines.push(`${field.key}: TEMPLATE -> value avg ${tVal.toFixed(3)} | sample refs: ${refs || "n/a"}`);
+        } else {
+          missing += 1;
+          lines.push(`${field.key}: NOT FOUND in header/template (using default ${defaultValues[field.key]})`);
+        }
+      }
+
+      const summary = [
+        `Header-mapped fields: ${mapped}/${mappingFields.length}`,
+        `Numeric-readable fields (header + template): ${numericOk}/${mappingFields.length}`,
+        `Missing mappings: ${missing}`,
+        "",
+        "Details:",
+        ...lines
+      ].join("\n");
+
+      setText("mappingCheckBox", summary);
+    }
+
+    async function loadExcel() {
+      const input = document.getElementById("excelFile");
+      const file = input.files && input.files[0];
+      if (!file) {
+        setText("excelStatus", "Please select an Excel file first.");
+        return;
+      }
+      try {
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { type: "array" });
+        state.workbook = wb;
+
+        const sheetSelect = document.getElementById("sheetSelect");
+        sheetSelect.innerHTML = "";
+        wb.SheetNames.forEach((name, idx) => {
+          const op = document.createElement("option");
+          op.value = name;
+          op.textContent = name;
+          if (idx === 0) op.selected = true;
+          sheetSelect.appendChild(op);
+        });
+
+        readSheetRows();
+        setText("excelStatus", `Loaded ${file.name}. Rows: ${state.rows.length}, Columns: ${state.headers.length}`);
+      } catch (err) {
+        setText("excelStatus", `Failed to load Excel: ${err.message}`);
+      }
+    }
+
+    function readSheetRows() {
+      const wb = state.workbook;
+      if (!wb) return;
+      const sheetName = document.getElementById("sheetSelect").value || wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: null });
+      const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true, blankrows: false });
+      state.rows = rows;
+      state.sheetMatrix = matrix;
+      state.headers = rows.length
+        ? Object.keys(rows[0])
+        : (Array.isArray(matrix[0]) ? matrix[0].filter((x) => String(x || "").trim()).map((x) => String(x)) : []);
+      state.templateValues = extractTemplateValues(matrix);
+      renderMappingUI();
+      setText("mappingCheckBox", "Sheet loaded. Click 'Validate Mapping' to inspect field-level mapping quality.");
+    }
+
+    function calculateFromExcel() {
+      if (!state.rows.length) {
+        setText("excelStatus", "No row data found. Please load a valid Excel sheet.");
+        return;
+      }
+
+      const area = getValueByMapping("area");
+      const height = getValueByMapping("height");
+      const deltaH = getValueByMapping("deltaH");
+      const cop = getValueByMapping("cop");
+      const eelec = getValueByMapping("eelec");
+      const lightHours = getValueByMapping("lightHours");
+      const pcPower = getValueByMapping("pcPower");
+      const pcHours = getValueByMapping("pcHours");
+      const refC = getValueByMapping("refC");
+      const refL = getValueByMapping("refL");
+      const gwp = getValueByMapping("gwp");
+      const gef = getValueByMapping("gef");
+      const oactual = getValueByMapping("oactual");
+      const obase = getValueByMapping("obase");
+
+      const rho = 1.2;
+      const volume = area * height;
+      const hvacKWh = (rho * volume * deltaH) / (3600 * cop);
+
+      const cu = 0.6;
+      const llf = 0.85;
+      const luminousEfficacy = 105;
+      const lumens = (eelec * area / cu) * llf;
+      const lightingPowerW = lumens / luminousEfficacy;
+      const lightingKWh = (lightingPowerW * lightHours) / 1000;
+
+      const equipmentKWh = (pcPower * pcHours) / 1000;
+      const totalElectricity = hvacKWh + lightingKWh + equipmentKWh;
+
+      const scope1 = refC * refL * gwp;
+      const scope2 = totalElectricity * gef;
+      const eei = (totalElectricity / Math.max(area, 0.01)) * (obase / Math.max(oactual, 0.01));
+
+      setText("scope1Value", fmt(scope1));
+      setText("scope2Value", fmt(scope2));
+      setText("elecValue", fmt(totalElectricity));
+      setText("eeiValue", fmt(eei));
+
+      let badge = '<span class="badge ok">Normal</span>';
+      const ideas = [];
+      if (scope2 > 1.6) {
+        badge = '<span class="badge bad">High Carbon</span>';
+        ideas.push("Raise HVAC setpoint by 1-2°C during high occupancy periods.");
+        ideas.push("Enable zoning and occupancy-linked controls.");
+      } else if (scope2 > 0.9) {
+        badge = '<span class="badge warn">Moderately High</span>';
+        ideas.push("Check lighting and equipment idle load.");
+      } else {
+        ideas.push("Current carbon intensity is relatively low; keep demand-based control.");
+      }
+      if (eei > 0.2) {
+        ideas.push("EEI is high. Validate occupancy density and avoid low-occupancy overcooling.");
+      } else {
+        ideas.push("EEI looks stable. Tune comfort settings incrementally.");
+      }
+      setHtml("ruleAdviceBox", `${badge} Rule-based quick advice:<br/>${ideas.map(i => `- ${i}`).join("<br/>")}`);
+
+      const result = {
+        timestamp: new Date().toISOString(),
+        assumptions: { rho, cu, llf, luminousEfficacy },
+        mappedHeaders: { ...state.mapping },
+        averagedInputs: {
+          area, height, deltaH, cop, eelec, lightHours, pcPower, pcHours,
+          refC, refL, gwp, gef, oactual, obase
+        },
+        breakdown: {
+          hvacKWh, lightingKWh, equipmentKWh, totalElectricity
+        },
+        outputs: {
+          scope1KgCO2e: scope1,
+          scope2KgCO2e: scope2,
+          eei
+        }
+      };
+      state.lastResult = result;
+      setText("resultJsonBox", JSON.stringify(result, null, 2));
+    }
+
+    function resetDefaults() {
+      state.mapping = {};
+      renderMappingUI();
+      setText("excelStatus", "Column mapping reset. Unmapped fields will use defaults.");
+    }
+
+    async function sendToGemini() {
+      if (!state.lastResult) {
+        setText("geminiFeedbackBox", "Please run calculation first.");
+        return;
+      }
+      const apiKey = document.getElementById("geminiApiKey").value.trim();
+      const model = document.getElementById("geminiModel").value.trim();
+      const promptTemplate = document.getElementById("promptTemplate").value.trim();
+
+      if (!apiKey) {
+        setText("geminiFeedbackBox", "Please provide Gemini API key.");
+        return;
+      }
+      if (!model) {
+        setText("geminiFeedbackBox", "Please provide a Gemini model ID.");
+        return;
+      }
+
+      const prompt = `${promptTemplate}\n\nResult JSON:\n${JSON.stringify(state.lastResult, null, 2)}`;
+      setText("geminiFeedbackBox", "Calling Gemini...");
+
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: prompt }]
+              }
+            ]
+          })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          const msg = data && data.error && data.error.message ? data.error.message : "Unknown API error";
+          throw new Error(msg);
+        }
+
+        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join("\n").trim();
+        if (!text) throw new Error("No text response returned by Gemini.");
+        setText("geminiFeedbackBox", text);
+      } catch (err) {
+        setText("geminiFeedbackBox", `Gemini request failed: ${err.message}\nTip: if gemini-3.1-pro is unavailable, try gemini-2.5-pro.`);
+      }
+    }
+
+    async function sendToDeepSeek() {
+      if (!state.lastResult) {
+        setText("deepseekFeedbackBox", "Please run calculation first.");
+        return;
+      }
+      const apiKey = document.getElementById("deepseekApiKey").value.trim();
+      const model = document.getElementById("deepseekModel").value.trim();
+      const promptTemplate = document.getElementById("promptTemplate").value.trim();
+
+      if (!apiKey) {
+        setText("deepseekFeedbackBox", "Please provide DeepSeek API key.");
+        return;
+      }
+      if (!model) {
+        setText("deepseekFeedbackBox", "Please provide a DeepSeek model ID.");
+        return;
+      }
+
+      const prompt = `${promptTemplate}\n\nResult JSON:\n${JSON.stringify(state.lastResult, null, 2)}`;
+      setText("deepseekFeedbackBox", "Calling DeepSeek...");
+
+      try {
+        const response = await fetch("https://api.deepseek.com/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.3
+          })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          const msg = data && data.error && data.error.message ? data.error.message : "Unknown API error";
+          throw new Error(msg);
+        }
+        const text = data?.choices?.[0]?.message?.content?.trim();
+        if (!text) throw new Error("No text response returned by DeepSeek.");
+        setText("deepseekFeedbackBox", text);
+      } catch (err) {
+        setText("deepseekFeedbackBox", `DeepSeek request failed: ${err.message}`);
+      }
+    }
+
+    document.getElementById("loadExcelBtn").addEventListener("click", loadExcel);
+    document.getElementById("sheetSelect").addEventListener("change", readSheetRows);
+    document.getElementById("buildMappingBtn").addEventListener("click", applyAutoMapping);
+    document.getElementById("validateMappingBtn").addEventListener("click", validateMapping);
+    document.getElementById("calcFromExcelBtn").addEventListener("click", calculateFromExcel);
+    document.getElementById("fillDefaultsBtn").addEventListener("click", resetDefaults);
+    document.getElementById("sendToGeminiBtn").addEventListener("click", sendToGemini);
+    document.getElementById("sendToDeepSeekBtn").addEventListener("click", sendToDeepSeek);
+
+    renderSteps();
+    renderMappingUI();
+  </script>
+</body>
+</html>
